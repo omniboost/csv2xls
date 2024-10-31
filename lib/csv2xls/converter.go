@@ -1,4 +1,4 @@
-package app
+package csv2xls
 
 import (
 	"bufio"
@@ -7,13 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"math"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/omniboost/csv2xls/lib/goxls"
 )
 
 const (
@@ -48,7 +49,7 @@ type dataSectionItem struct {
 }
 
 // NewCsv2XlsConverter ...
-func NewCsv2XlsConverter(csvFileName, xlsFileName, csvDelimiter string) (*Csv2XlsConverter, error) {
+func NewCsv2XlsConverter(csvFileName string, xlsFileName string, csvDelimiter string) (*Csv2XlsConverter, error) {
 	if utf8.RuneCountInString(csvDelimiter) > 1 {
 		return nil, errors.New("csv delimiter must be one character string")
 	}
@@ -62,39 +63,78 @@ func NewCsv2XlsConverter(csvFileName, xlsFileName, csvDelimiter string) (*Csv2Xl
 	}, nil
 }
 
-// Convert ...
+// Convert....
 func (c *Csv2XlsConverter) Convert() error {
+	sc, err := GetStringCollectionFromCSVFile(c.csvFileName, c.csvDelimiter)
+	if err != nil {
+		return err
+	}
+
+	buf, err := c.FromStringCollectionToXLS(&sc)
+	if err != nil {
+		return err
+	}
+
+	f, err := os.Create(c.xlsFileName)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	// Issue a `Sync` to flush writes to stable storage.
+	err3 := f.Sync()
+	if err3 != nil {
+		return err
+	}
+
+	w := bufio.NewWriter(f)
+
+	_, err2 := w.Write(buf)
+	if err2 != nil {
+		return err
+	}
+
+	// Use `Flush` to ensure all buffered operations have
+	err4 := w.Flush()
+	if err4 != nil {
+		return err
+	}
+
+	return nil
+}
+
+// From CSV Reader to XLS ...
+func (c *Csv2XlsConverter) FromStringCollectionToXLS(stringCollection *goxls.StringCollection) ([]byte, error) {
 	var CreatedAtInt int64 = time.Now().Unix()
 	var ModifiedAtInt int64 = time.Now().Unix()
 
 	columnWidths := make(map[int]int, 0)
 	//columnWidths[1] = 40 // parameter todo
 
-	stringCollection, err := getStringCollectionFromCsvFile(c.csvFileName, c.csvDelimiter)
-	if err != nil {
-		return err
-	}
-
-	wsArr := make([]worksheet, 0)
+	wsArr := make([]goxls.Worksheet, 0)
 	n := 0
-	for i := 0; i < len(stringCollection.stringGrid); i += 65535 {
+	for i := 0; i < len(stringCollection.StringGrid); i += 65535 {
 		wsName := "worksheet"
 		if n > 0 {
 			wsName += strconv.Itoa(n)
 		}
 
 		last := i + 65535
-		if last > len(stringCollection.stringGrid) {
-			last = len(stringCollection.stringGrid)
+		if last > len(stringCollection.StringGrid) {
+			last = len(stringCollection.StringGrid)
 		}
-		wsArr = append(wsArr, worksheet{wsName, stringCollection.stringGrid[i:last], columnWidths})
+		wsArr = append(wsArr, goxls.Worksheet{
+			Name:         wsName,
+			Grid:         stringCollection.StringGrid[i:last],
+			ColumnWidths: columnWidths,
+		})
 		n++
 	}
 
 	worksheetDatas := make([]string, 0)
 	worksheetNames := make([]string, 0)
 	for _, ws := range wsArr {
-		worksheetDatas = append(worksheetDatas, ws.getData(&stringCollection))
+		worksheetDatas = append(worksheetDatas, ws.GetData(stringCollection))
 		worksheetNames = append(worksheetNames, ws.Name)
 	}
 
@@ -103,25 +143,60 @@ func (c *Csv2XlsConverter) Convert() error {
 		worksheetSizes = append(worksheetSizes, len(wsd))
 	}
 
-	workbook := workbook{worksheetSizes, worksheetNames, &stringCollection}
+	workbook := goxls.Workbook{
+		WorksheetSizes:   worksheetSizes,
+		WorksheetNames:   worksheetNames,
+		StringCollection: stringCollection,
+	}
 
 	var data strings.Builder
-	data.WriteString(workbook.getWorksheetSizesData())
+	data.WriteString(workbook.GetWorksheetSizesData())
 
 	for _, wsd := range worksheetDatas {
 		data.WriteString(wsd)
 	}
 
-	rootPps := pps{0, ascToUcs("Root Entry"), olePpsTypeRoot, 0xFFFFFFFF, 0xFFFFFFFF, 1, "", 0, 0}
-	workbookPps := pps{1, ascToUcs("workbook"), olePpsTypeFile, 2, 3, 0xFFFFFFFF, data.String(), 0, 0}
+	rootPps := goxls.PPS{
+		No:         0,
+		Name:       goxls.AsciiToUcs("Root Entry"),
+		PpsType:    olePpsTypeRoot,
+		PrevPps:    0xFFFFFFFF,
+		NextPps:    0xFFFFFFFF,
+		DirPps:     1,
+		Data:       "",
+		Size:       0,
+		StartBlock: 0,
+	}
+
+	workbookPps := goxls.PPS{
+		No:         1,
+		Name:       goxls.AsciiToUcs("workbook"),
+		PpsType:    olePpsTypeFile,
+		PrevPps:    2,
+		NextPps:    3,
+		DirPps:     0xFFFFFFFF,
+		Data:       data.String(),
+		Size:       0,
+		StartBlock: 0,
+	}
 
 	// TODO
 	//documentSummaryInformationPps := pps{2, fmt.Sprintf("%c%s", rune(5), ascToUcs("DocumentSummaryInformation")), olePpsTypeFile, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, getDocumentSummaryInformation(), 0, 0}
 
 	summaryInformation := getSummaryInformation(c.title, c.subject, c.creator, c.keywords, c.description, c.lastModifiedBy, CreatedAtInt, ModifiedAtInt)
-	summaryInformationPps := pps{2, ascToUcs(fmt.Sprintf("%c%s", rune(5), "SummaryInformation")), olePpsTypeFile, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, summaryInformation, 0, 0}
+	summaryInformationPps := goxls.PPS{
+		No:         2,
+		Name:       goxls.AsciiToUcs(fmt.Sprintf("%c%s", rune(5), "SummaryInformation")),
+		PpsType:    olePpsTypeFile,
+		PrevPps:    0xFFFFFFFF,
+		NextPps:    0xFFFFFFFF,
+		DirPps:     0xFFFFFFFF,
+		Data:       summaryInformation,
+		Size:       0,
+		StartBlock: 0,
+	}
 
-	aList := []pps{rootPps, workbookPps /*, TODO documentSummaryInformationPps*/, summaryInformationPps}
+	aList := []goxls.PPS{rootPps, workbookPps /*, TODO documentSummaryInformationPps*/, summaryInformationPps}
 
 	iSBDcnt, iBBcnt, iPPScnt := calcSize(aList) // change types to uint32 TODO
 
@@ -142,37 +217,7 @@ func (c *Csv2XlsConverter) Convert() error {
 	// Write Big Block Depot and BDList and Adding Header information
 	saveBbd(resultBuffer, iSBDcnt, iBBcnt, iPPScnt)
 
-	f, err := os.Create(c.xlsFileName)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer func() {
-		err := f.Close()
-		if err != nil {
-			log.Fatal(err)
-		}
-	}()
-
-	// Issue a `Sync` to flush writes to stable storage.
-	err3 := f.Sync()
-	if err3 != nil {
-		log.Fatal(err3)
-	}
-
-	w := bufio.NewWriter(f)
-
-	_, err2 := w.Write([]byte(resultBuffer.String()))
-	if err2 != nil {
-		log.Fatal(err)
-	}
-
-	// Use `Flush` to ensure all buffered operations have
-	err4 := w.Flush()
-	if err4 != nil {
-		log.Fatal(err3)
-	}
-
-	return nil
+	return resultBuffer.Bytes(), nil
 }
 
 // WithTitle ...
@@ -251,39 +296,39 @@ func saveBbd(buffer *bytes.Buffer, iSbdSize, iBsize, iPpsCnt uint32) {
 	if iSbdSize > 0 {
 		var i uint32
 		for i = 0; i < (iSbdSize - 1); i++ {
-			putVar(buffer, i+1)
+			goxls.PutVar(buffer, i+1)
 		}
-		putVar(buffer, []byte("\xFE\xFF\xFF\xFF")) // uint32(-2)
+		goxls.PutVar(buffer, []byte("\xFE\xFF\xFF\xFF")) // uint32(-2)
 	}
 
 	// Set for B
 	var i uint32
 	for i = 0; i < (iBsize - 1); i++ {
-		putVar(buffer, i+iSbdSize+1)
+		goxls.PutVar(buffer, i+iSbdSize+1)
 	}
-	putVar(buffer, []byte("\xFE\xFF\xFF\xFF"))
+	goxls.PutVar(buffer, []byte("\xFE\xFF\xFF\xFF"))
 
 	// Set for PPS
 	for i = 0; i < (iPpsCnt - 1); i++ {
-		putVar(buffer, i+iSbdSize+iBsize+1)
+		goxls.PutVar(buffer, i+iSbdSize+iBsize+1)
 	}
-	putVar(buffer, []byte("\xFE\xFF\xFF\xFF"))
+	goxls.PutVar(buffer, []byte("\xFE\xFF\xFF\xFF"))
 
 	// Set for BBD itself ( 0xFFFFFFFD : BBD)
 	for i = 0; i < iBdCnt; i++ {
-		putVar(buffer, uint32(0xFFFFFFFD))
+		goxls.PutVar(buffer, uint32(0xFFFFFFFD))
 	}
 
 	// Set for ExtraBDList
 	for i = 0; i < iBdExL; i++ {
-		putVar(buffer, uint32(0xFFFFFFFC))
+		goxls.PutVar(buffer, uint32(0xFFFFFFFC))
 	}
 
 	// Adjust for Block
 	if (iAllW+iBdCnt)%iBbCnt > 0 {
 		iBlock := iBbCnt - ((iAllW + iBdCnt) % iBbCnt)
 		for i = 0; i < iBlock; i++ {
-			putVar(buffer, []byte("\xFF\xFF\xFF\xFF"))
+			goxls.PutVar(buffer, []byte("\xFF\xFF\xFF\xFF"))
 		}
 	}
 
@@ -294,44 +339,44 @@ func saveBbd(buffer *bytes.Buffer, iSbdSize, iBsize, iPpsCnt uint32) {
 			if iN >= (iBbCnt - 1) {
 				iN = 0
 				iNb++
-				putVar(buffer, iAll+iBdCnt+iNb)
+				goxls.PutVar(buffer, iAll+iBdCnt+iNb)
 			}
-			putVar(buffer, iBsize+iSbdSize+iPpsCnt+i)
+			goxls.PutVar(buffer, iBsize+iSbdSize+iPpsCnt+i)
 			iN++
 		}
 		if (iBdCnt-i1stBdL)%(iBbCnt-1) > 0 {
 			iB := (iBbCnt - 1) - ((iBdCnt - i1stBdL) % (iBbCnt - 1))
 			for i = 0; i < iB; i++ {
-				putVar(buffer, []byte("\xFF\xFF\xFF\xFF"))
+				goxls.PutVar(buffer, []byte("\xFF\xFF\xFF\xFF"))
 			}
 		}
-		putVar(buffer, []byte("\xFE\xFF\xFF\xFF"))
+		goxls.PutVar(buffer, []byte("\xFE\xFF\xFF\xFF"))
 	}
 }
 
-func savePps(buffer *bytes.Buffer, raList []pps) {
+func savePps(buffer *bytes.Buffer, raList []goxls.PPS) {
 	// Save each PPS WK
 	for _, pps := range raList {
-		putVar(buffer, []byte(pps.getPpsWk())) // maybe it'll be better to change return type to []byte
+		goxls.PutVar(buffer, []byte(pps.GetPpsWk())) // maybe it'll be better to change return type to []byte
 	}
 	// Adjust for Block
 	iCnt := len(raList)
 	iBCnt := 512 / olePpsSize
 	if iCnt%iBCnt > 0 {
-		putVar(buffer, []byte(strings.Repeat("\x00", (iBCnt-(iCnt%iBCnt))*olePpsSize)))
+		goxls.PutVar(buffer, []byte(strings.Repeat("\x00", (iBCnt-(iCnt%iBCnt))*olePpsSize)))
 	}
 }
 
-func saveBigData(buffer *bytes.Buffer, iStBlk uint32, raList []pps) {
+func saveBigData(buffer *bytes.Buffer, iStBlk uint32, raList []goxls.PPS) {
 	// cycle through PPS's
-	for i, _ := range raList {
+	for i := range raList {
 		if raList[i].PpsType != olePpsTypeDir {
 			raList[i].Size = uint32(len(raList[i].Data))
 			if raList[i].Size >= oleDataSizeSmall || (raList[i].PpsType == olePpsTypeRoot && len(raList[i].Data) != 0) {
-				putVar(buffer, []byte(raList[i].Data))
+				goxls.PutVar(buffer, []byte(raList[i].Data))
 
 				if raList[i].Size%512 > 0 {
-					putVar(buffer, []byte(strings.Repeat("\x00", 512-int(raList[i].Size)%512)))
+					goxls.PutVar(buffer, []byte(strings.Repeat("\x00", 512-int(raList[i].Size)%512)))
 				}
 				// Set For PPS
 				raList[i].StartBlock = iStBlk
@@ -344,11 +389,11 @@ func saveBigData(buffer *bytes.Buffer, iStBlk uint32, raList []pps) {
 	}
 }
 
-func makeSmallData(buffer *bytes.Buffer, raList []pps) string {
+func makeSmallData(buffer *bytes.Buffer, raList []goxls.PPS) string {
 	var smallData strings.Builder
 	var iSmBlk uint32 = 0
 
-	for i, _ := range raList {
+	for i := range raList {
 		// Make SBD, small data string
 		if raList[i].PpsType == olePpsTypeFile {
 			if raList[i].Size <= 0 {
@@ -363,9 +408,9 @@ func makeSmallData(buffer *bytes.Buffer, raList []pps) string {
 				jB := iSmbCnt - 1
 				var j uint32
 				for j = 0; j < jB; j++ {
-					putVar(buffer, j+iSmBlk+1)
+					goxls.PutVar(buffer, j+iSmBlk+1)
 				}
-				putVar(buffer, []byte("\xFE\xFF\xFF\xFF")) // uint32(-2)
+				goxls.PutVar(buffer, []byte("\xFE\xFF\xFF\xFF")) // uint32(-2)
 
 				smallData.WriteString(raList[i].Data)
 				if raList[i].Size%64 > 0 {
@@ -383,7 +428,7 @@ func makeSmallData(buffer *bytes.Buffer, raList []pps) string {
 		iB := iSbCnt - (iSmBlk % iSbCnt)
 		var i uint32
 		for i = 0; i < iB; i++ {
-			putVar(buffer, []byte("\xFF\xFF\xFF\xFF"))
+			goxls.PutVar(buffer, []byte("\xFF\xFF\xFF\xFF"))
 		}
 	}
 
@@ -427,7 +472,7 @@ func saveHeader(buffer *bytes.Buffer, iSBDcnt, iBBcnt, iPPScnt uint32) {
 	}
 
 	// Save Header
-	putVar(buffer,
+	goxls.PutVar(buffer,
 		[]byte("\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1"),
 		[]byte("\x00\x00\x00\x00"),
 		[]byte("\x00\x00\x00\x00"),
@@ -447,37 +492,37 @@ func saveHeader(buffer *bytes.Buffer, iSBDcnt, iBBcnt, iPPScnt uint32) {
 		uint32(0x1000),
 	)
 	if iSBDcnt > 0 {
-		putVar(buffer, uint32(0))
+		goxls.PutVar(buffer, uint32(0))
 	} else {
-		putVar(buffer, []byte("\xFE\xFF\xFF\xFF"))
+		goxls.PutVar(buffer, []byte("\xFE\xFF\xFF\xFF"))
 	}
-	putVar(buffer, iSBDcnt)
+	goxls.PutVar(buffer, iSBDcnt)
 
 	// Extra BDList Start, Count
 	if iBdCnt < i1stBdL {
-		putVar(buffer,
+		goxls.PutVar(buffer,
 			[]byte("\xFE\xFF\xFF\xFF"), // Extra BDList Start
 			uint32(0),                  // Extra BDList Count
 		)
 	} else {
-		putVar(buffer, iAll+iBdCnt, iBdExL)
+		goxls.PutVar(buffer, iAll+iBdCnt, iBdExL)
 	}
 
 	// BDList
 	var i uint32
 	for i = 0; i < i1stBdL && i < iBdCnt; i++ {
-		putVar(buffer, iAll+i)
+		goxls.PutVar(buffer, iAll+i)
 	}
 	if i < i1stBdL {
 		jB := i1stBdL - i
 		var j uint32
 		for j = 0; j < jB; j++ {
-			putVar(buffer, []byte("\xFF\xFF\xFF\xFF"))
+			goxls.PutVar(buffer, []byte("\xFF\xFF\xFF\xFF"))
 		}
 	}
 }
 
-func calcSize(aList []pps) (uint32, uint32, uint32) {
+func calcSize(aList []goxls.PPS) (uint32, uint32, uint32) {
 	var iSBDcnt, iBBcnt, iPPScnt uint32 = 0, 0, 0
 
 	iSBcnt := 0
@@ -524,22 +569,22 @@ func getSummaryInformation(title, subject, creator, keywords, description, lastM
 	buffer := new(bytes.Buffer)
 
 	// offset: 0; size: 2; must be 0xFE 0xFF (UTF-16 LE byte order mark)
-	putVar(buffer, uint16(0xFFFE))
+	goxls.PutVar(buffer, uint16(0xFFFE))
 	// offset: 2; size: 2;
-	putVar(buffer, uint16(0x0000))
+	goxls.PutVar(buffer, uint16(0x0000))
 	// offset: 4; size: 2; OS version
-	putVar(buffer, uint16(0x0106))
+	goxls.PutVar(buffer, uint16(0x0106))
 	// offset: 6; size: 2; OS indicator
-	putVar(buffer, uint16(0x0002))
+	goxls.PutVar(buffer, uint16(0x0002))
 	// offset: 8; size: 16
-	putVar(buffer, uint32(0x00), uint32(0x00), uint32(0x00), uint32(0x00))
+	goxls.PutVar(buffer, uint32(0x00), uint32(0x00), uint32(0x00), uint32(0x00))
 	// offset: 24; size: 4; section count
-	putVar(buffer, uint32(0x0001))
+	goxls.PutVar(buffer, uint32(0x0001))
 
 	// offset: 28; size: 16; first section's class id: 02 d5 cd d5 9c 2e 1b 10 93 97 08 00 2b 2c f9 ae
-	putVar(buffer, uint16(0x85E0), uint16(0xF29F), uint16(0x4FF9), uint16(0x1068), uint16(0x91AB), uint16(0x0008), uint16(0x272B), uint16(0xD9B3))
+	goxls.PutVar(buffer, uint16(0x85E0), uint16(0xF29F), uint16(0x4FF9), uint16(0x1068), uint16(0x91AB), uint16(0x0008), uint16(0x272B), uint16(0xD9B3))
 	// offset: 44; size: 4; offset of the start
-	putVar(buffer, uint32(0x30))
+	goxls.PutVar(buffer, uint32(0x30))
 
 	var dataSectionNumProps uint32 = 0
 	dataSections := make([]dataSectionItem, 0)
@@ -586,13 +631,13 @@ func getSummaryInformation(title, subject, creator, keywords, description, lastM
 
 	// Created Date/Time
 	if created != 0 {
-		dataSections = append(dataSections, dataSectionItem{0x0C, 0, 0x40, 0, localDateToOLE(created), 0})
+		dataSections = append(dataSections, dataSectionItem{0x0C, 0, 0x40, 0, goxls.LocalDateToOLE(created), 0})
 		dataSectionNumProps++
 	}
 
 	// Modified Date/Time
 	if modified != 0 {
-		dataSections = append(dataSections, dataSectionItem{0x0D, 0, 0x40, 0, localDateToOLE(modified), 0})
+		dataSections = append(dataSections, dataSectionItem{0x0D, 0, 0x40, 0, goxls.LocalDateToOLE(modified), 0})
 		dataSectionNumProps++
 	}
 
@@ -606,17 +651,17 @@ func getSummaryInformation(title, subject, creator, keywords, description, lastM
 
 	for _, dataSection := range dataSections {
 		// Summary
-		putVar(dataSectionSummary, dataSection.summary)
+		goxls.PutVar(dataSectionSummary, dataSection.summary)
 		// Offset
-		putVar(dataSectionSummary, dataSectionContentOffset)
+		goxls.PutVar(dataSectionSummary, dataSectionContentOffset)
 		// DataType
-		putVar(dataSectionContent, dataSection.sType)
+		goxls.PutVar(dataSectionContent, dataSection.sType)
 		// Data
 		if dataSection.sType == 0x02 { // 2 byte signed integer
-			putVar(dataSectionContent, dataSection.dataInt)
+			goxls.PutVar(dataSectionContent, dataSection.dataInt)
 			dataSectionContentOffset += 8
 		} else if dataSection.sType == 0x03 { // 4 byte signed integer
-			putVar(dataSectionContent, dataSection.dataInt)
+			goxls.PutVar(dataSectionContent, dataSection.dataInt)
 			dataSectionContentOffset += 8
 		} else if dataSection.sType == 0x1E { // null-terminated string prepended by dword string length
 			// Null-terminated string
@@ -630,12 +675,12 @@ func getSummaryInformation(title, subject, creator, keywords, description, lastM
 
 			dataSection.dataString = dataSection.dataString + strings.Repeat("\x00", int(dataSection.dataLength)-len(dataSection.dataString))
 
-			putVar(dataSectionContent, dataSection.dataLength)
-			putVar(dataSectionContent, []byte(dataSection.dataString))
+			goxls.PutVar(dataSectionContent, dataSection.dataLength)
+			goxls.PutVar(dataSectionContent, []byte(dataSection.dataString))
 
 			dataSectionContentOffset += 8 + uint32(len(dataSection.dataString))
 		} else if dataSection.sType == 0x40 { // Filetime (64-bit value representing the number of 100-nanosecond intervals since January 1, 1601)
-			putVar(dataSectionContent, []byte(dataSection.dataString))
+			goxls.PutVar(dataSectionContent, []byte(dataSection.dataString))
 			dataSectionContentOffset += 4 + 8
 		}
 		// Data Type Not Used at the moment
@@ -645,76 +690,41 @@ func getSummaryInformation(title, subject, creator, keywords, description, lastM
 	// section header
 	// offset: $secOffset; size: 4; section length
 	//         + x  Size of the content (summary + content)
-	putVar(buffer, dataSectionContentOffset)
+	goxls.PutVar(buffer, dataSectionContentOffset)
 
 	// offset: $secOffset+4; size: 4; property count
-	putVar(buffer, dataSectionNumProps)
+	goxls.PutVar(buffer, dataSectionNumProps)
 
 	// Section Summary
-	putVar(buffer, dataSectionSummary.Bytes())
+	goxls.PutVar(buffer, dataSectionSummary.Bytes())
 
 	// Section Content
-	putVar(buffer, dataSectionContent.Bytes())
+	goxls.PutVar(buffer, dataSectionContent.Bytes())
 
 	return buffer.String()
 }
 
-func getDocumentSummaryInformation() string {
-	return "" // TODO
-}
-
-func getGridAndStatFromCsvFile(csvFileName string) ([][]string, int, int, map[string]int) {
-	grid := make([][]string, 0)
-	stringTotal := 0
-	stringUnique := 0
-	stringTable := make(map[string]int, 0)
-
+func GetStringCollectionFromCSVFile(csvFileName string, delimiter rune) (goxls.StringCollection, error) {
 	f, err := os.Open(csvFileName)
 	if err != nil {
-		panic(fmt.Sprintf("Cannot read csv file \"%s\"", csvFileName))
+		return goxls.StringCollection{}, fmt.Errorf(`cannot read csv file "%s"`, csvFileName)
 	}
 	defer f.Close()
 
-	r := csv.NewReader(f)
-	r.Comma = ';'
-
-	for {
-		record, err := r.Read()
-		// Stop at EOF.
-		if err == io.EOF {
-			break
-		}
-
-		if err != nil {
-			panic(err)
-		}
-
-		grid = append(grid, record)
-
-		for _, value := range record {
-			str := utf8toBIFF8UnicodeLong(value)
-			if _, ok := stringTable[str]; !ok {
-				stringTable[str] = stringUnique
-				stringUnique++
-			}
-
-			stringTotal++
-		}
-	}
-
-	return grid, stringTotal, stringUnique, stringTable
+	sc, err := GetStringCollectionFromCSVReader(f, delimiter)
+	return sc, err
 }
 
-func getStringCollectionFromCsvFile(csvFileName string, delimiter rune) (stringCollection, error) {
-	sc := stringCollection{make([][]string, 0), make(map[string]int, 0), make([]string, 0), 0, 0}
-
-	f, err := os.Open(csvFileName)
-	if err != nil {
-		return sc, fmt.Errorf(`cannot read csv file "%s"`, csvFileName)
+func GetStringCollectionFromCSVReader(reader io.Reader, delimiter rune) (goxls.StringCollection, error) {
+	sc := goxls.StringCollection{
+		StringGrid:   make([][]string, 0),
+		StringMap:    make(map[string]int, 0),
+		StringList:   make([]string, 0),
+		StringTotal:  0,
+		StringUnique: 0,
 	}
-	defer f.Close()
 
-	r := csv.NewReader(f)
+	r := csv.NewReader(reader)
 	r.FieldsPerRecord = -1
 	r.Comma = delimiter
 	r.LazyQuotes = true
@@ -730,31 +740,8 @@ func getStringCollectionFromCsvFile(csvFileName string, delimiter rune) (stringC
 			return sc, err
 		}
 
-		sc.addRow(record)
+		sc.AddRow(record)
 	}
 
 	return sc, nil
-}
-
-// stringCollection ...
-type stringCollection struct {
-	stringGrid   [][]string
-	stringMap    map[string]int
-	stringList   []string
-	stringTotal  int
-	stringUnique int
-}
-
-func (sc *stringCollection) addRow(row []string) {
-	sc.stringGrid = append(sc.stringGrid, row)
-	for _, str := range row {
-		strToSave := utf8toBIFF8UnicodeLong(str)
-		if _, ok := sc.stringMap[strToSave]; !ok {
-			sc.stringMap[strToSave] = sc.stringUnique
-			sc.stringList = append(sc.stringList, strToSave)
-			sc.stringUnique++
-		}
-
-		sc.stringTotal++
-	}
 }

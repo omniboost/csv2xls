@@ -1,4 +1,4 @@
-package app
+package goxls
 
 import (
 	"bytes"
@@ -6,7 +6,7 @@ import (
 )
 
 // pps ...
-type pps struct {
+type PPS struct {
 	No         int
 	Name       string
 	PpsType    uint8
@@ -19,11 +19,11 @@ type pps struct {
 }
 
 // getPpsWk ...
-func (pps *pps) getPpsWk() string {
+func (pps *PPS) GetPpsWk() string {
 	buf := new(bytes.Buffer)
-	putVar(buf, []byte(padRight(pps.Name, "\x00", 64)))
+	PutVar(buf, []byte(padRight(pps.Name, "\x00", 64)))
 
-	putVar(buf,
+	PutVar(buf,
 		int16(len(pps.Name)+2),
 		pps.PpsType,
 		int8(0x00),
@@ -35,8 +35,8 @@ func (pps *pps) getPpsWk() string {
 		[]byte("\xc0\x00\x00\x00"),
 		[]byte("\x00\x00\x00\x46"),
 		[]byte("\x00\x00\x00\x00"),
-		[]byte(localDateToOLE(time.Now().Unix())),
-		[]byte(localDateToOLE(time.Now().Unix())),
+		[]byte(LocalDateToOLE(time.Now().Unix())),
+		[]byte(LocalDateToOLE(time.Now().Unix())),
 		pps.StartBlock,
 		pps.Size,
 		uint32(0),

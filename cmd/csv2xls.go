@@ -4,7 +4,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/sergrom/csv2xls/v3/internal/app"
+	csv2xls "github.com/omniboost/csv2xls/lib/csv2xls"
 	"github.com/spf13/cobra"
 )
 
@@ -55,7 +55,7 @@ var rootCmd = &cobra.Command{
 			log.Fatal(err.Error())
 		}
 
-		converter, err := app.NewCsv2XlsConverter(csvFileName, xlsFileName, csvDelimiter)
+		converter, err := csv2xls.NewCsv2XlsConverter(csvFileName, xlsFileName, csvDelimiter)
 		if err != nil {
 			log.Fatal(err.Error())
 		}

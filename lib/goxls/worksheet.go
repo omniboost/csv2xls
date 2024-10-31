@@ -1,21 +1,21 @@
-package app
+package goxls
 
 import (
 	"bytes"
 )
 
-// worksheet ...
-type worksheet struct {
+// Worksheet ...
+type Worksheet struct {
 	Name         string
 	Grid         [][]string
 	ColumnWidths map[int]int
 }
 
-func (ws *worksheet) getName() string {
+func (ws *Worksheet) GetName() string {
 	return ws.Name
 }
 
-func (ws *worksheet) getData(stringCollection *stringCollection) string {
+func (ws *Worksheet) GetData(stringCollection *StringCollection) string {
 	buf := new(bytes.Buffer)
 
 	maxColIdx := 0
@@ -144,7 +144,7 @@ func (ws *worksheet) getData(stringCollection *stringCollection) string {
 	return buf.String()
 }
 
-func (ws *worksheet) storeBof(buffer *bytes.Buffer) {
+func (ws *Worksheet) storeBof(buffer *bytes.Buffer) {
 	var bType uint16 = 0x0010
 
 	var record uint16 = 0x0809 // Record identifier    (BIFF5-BIFF8)
@@ -154,40 +154,40 @@ func (ws *worksheet) storeBof(buffer *bytes.Buffer) {
 	var year uint16 = 0x07CC    //    Excel 97
 	var version uint16 = 0x0600 //    BIFF8
 
-	putVar(buffer, record, length, version, bType, build, year)
+	PutVar(buffer, record, length, version, bType, build, year)
 
 	// by inspection of real files, MS Office Excel 2007 writes the following
-	putVar(buffer, uint32(0x000100D1), uint32(0x00000406))
+	PutVar(buffer, uint32(0x000100D1), uint32(0x00000406))
 }
 
-func (ws *worksheet) writePrintHeaders(buffer *bytes.Buffer) {
+func (ws *Worksheet) writePrintHeaders(buffer *bytes.Buffer) {
 	var record uint16 = 0x002a // Record identifier
 	var length uint16 = 0x0002 // Bytes to follow
 
 	var fPrintRwCol uint16 = 0 // Boolean flag
 
-	putVar(buffer, record, length, fPrintRwCol)
+	PutVar(buffer, record, length, fPrintRwCol)
 }
 
-func (ws *worksheet) writePrintGridlines(buffer *bytes.Buffer) {
+func (ws *Worksheet) writePrintGridlines(buffer *bytes.Buffer) {
 	var record uint16 = 0x002b // Record identifier
 	var length uint16 = 0x0002 // Bytes to follow
 
 	var fPrintGrid uint16 = 0 // Boolean flag
 
-	putVar(buffer, record, length, fPrintGrid)
+	PutVar(buffer, record, length, fPrintGrid)
 }
 
-func (ws *worksheet) writeGridset(buffer *bytes.Buffer) {
+func (ws *Worksheet) writeGridset(buffer *bytes.Buffer) {
 	var record uint16 = 0x0082 // Record identifier
 	var length uint16 = 0x0002 // Bytes to follow
 
 	var fGridSet uint16 = 1 // Boolean flag
 
-	putVar(buffer, record, length, fGridSet)
+	PutVar(buffer, record, length, fGridSet)
 }
 
-func (ws *worksheet) writeGuts(buffer *bytes.Buffer, columnInfo [][]uint16) {
+func (ws *Worksheet) writeGuts(buffer *bytes.Buffer, columnInfo [][]uint16) {
 	var record uint16 = 0x0080 // Record identifier
 	var length uint16 = 0x0008 // Bytes to follow
 
@@ -213,15 +213,15 @@ func (ws *worksheet) writeGuts(buffer *bytes.Buffer, columnInfo [][]uint16) {
 		col_level++
 	}
 
-	putVar(buffer, record, length)
-	putVar(buffer, dxRwGut, dxColGut, maxRowOutlineLevel, col_level)
+	PutVar(buffer, record, length)
+	PutVar(buffer, dxRwGut, dxColGut, maxRowOutlineLevel, col_level)
 }
 
-func (ws *worksheet) writeDefaultRowHeight(buffer *bytes.Buffer) {
+func (ws *Worksheet) writeDefaultRowHeight(buffer *bytes.Buffer) {
 	// empty
 }
 
-func (ws *worksheet) writeWsbool(buffer *bytes.Buffer) {
+func (ws *Worksheet) writeWsbool(buffer *bytes.Buffer) {
 	var record uint16 = 0x0081 // Record identifier
 	var length uint16 = 0x0002 // Bytes to follow
 	var grbit uint16 = 0x0000
@@ -232,84 +232,84 @@ func (ws *worksheet) writeWsbool(buffer *bytes.Buffer) {
 	grbit |= 0x0080 // Outline summary right
 	grbit |= 0x0400 // Outline symbols displayed
 
-	putVar(buffer, record, length, grbit)
+	PutVar(buffer, record, length, grbit)
 }
 
-func (ws *worksheet) writeBreaks(buffer *bytes.Buffer) {
+func (ws *Worksheet) writeBreaks(buffer *bytes.Buffer) {
 	// empty
 }
 
-func (ws *worksheet) writeHeader(buffer *bytes.Buffer) {
+func (ws *Worksheet) writeHeader(buffer *bytes.Buffer) {
 	var record uint16 = 0x0014 // Record identifier
-	recordData := utf8toBIFF8UnicodeLong("")
+	recordData := Utf8toBIFF8UnicodeLong("")
 	length := uint16(len(recordData))
 
-	putVar(buffer, record, length, []byte(recordData))
+	PutVar(buffer, record, length, []byte(recordData))
 }
 
-func (ws *worksheet) writeFooter(buffer *bytes.Buffer) {
+func (ws *Worksheet) writeFooter(buffer *bytes.Buffer) {
 	var record uint16 = 0x0015 // Record identifier
-	recordData := utf8toBIFF8UnicodeLong("")
+	recordData := Utf8toBIFF8UnicodeLong("")
 	length := uint16(len(recordData))
 
-	putVar(buffer, record, length, []byte(recordData))
+	PutVar(buffer, record, length, []byte(recordData))
 }
 
-func (ws *worksheet) writeHcenter(buffer *bytes.Buffer) {
+func (ws *Worksheet) writeHcenter(buffer *bytes.Buffer) {
 	var record uint16 = 0x0083 // Record identifier
 	var length uint16 = 0x0002 // Bytes to follow
 
 	var fHCenter uint16 = 0 // Horizontal centering
 
-	putVar(buffer, record, length, fHCenter)
+	PutVar(buffer, record, length, fHCenter)
 }
 
-func (ws *worksheet) writeVcenter(buffer *bytes.Buffer) {
+func (ws *Worksheet) writeVcenter(buffer *bytes.Buffer) {
 	var record uint16 = 0x0084 // Record identifier
 	var length uint16 = 0x0002 // Bytes to follow
 
 	var fVCenter uint16 = 0 // Horizontal centering
 
-	putVar(buffer, record, length, fVCenter)
+	PutVar(buffer, record, length, fVCenter)
 }
 
-func (ws *worksheet) writeMarginLeft(buffer *bytes.Buffer) {
+func (ws *Worksheet) writeMarginLeft(buffer *bytes.Buffer) {
 	var record uint16 = 0x0026 // Record identifier
 	var length uint16 = 0x0008 // Bytes to follow
 
 	margin := 0.7 // Margin in inches
 
-	putVar(buffer, record, length, margin)
+	PutVar(buffer, record, length, margin)
 }
 
-func (ws *worksheet) writeMarginRight(buffer *bytes.Buffer) {
+func (ws *Worksheet) writeMarginRight(buffer *bytes.Buffer) {
 	var record uint16 = 0x0027 // Record identifier
 	var length uint16 = 0x0008 // Bytes to follow
 
 	margin := 0.7 // Margin in inches
 
-	putVar(buffer, record, length, margin)
+	PutVar(buffer, record, length, margin)
 }
 
-func (ws *worksheet) writeMarginTop(buffer *bytes.Buffer) {
+func (ws *Worksheet) writeMarginTop(buffer *bytes.Buffer) {
 	var record uint16 = 0x0028 // Record identifier
 	var length uint16 = 0x0008 // Bytes to follow
 
 	margin := 0.75 // Margin in inches
 
-	putVar(buffer, record, length, margin)
+	PutVar(buffer, record, length, margin)
 }
 
-func (ws *worksheet) writeMarginBottom(buffer *bytes.Buffer) {
+func (ws *Worksheet) writeMarginBottom(buffer *bytes.Buffer) {
 	var record uint16 = 0x0029 // Record identifier
 	var length uint16 = 0x0008 // Bytes to follow
 
 	margin := 0.75 // Margin in inches
 
-	putVar(buffer, record, length, margin)
+	PutVar(buffer, record, length, margin)
 }
 
-func (ws *worksheet) writeSetup(buffer *bytes.Buffer) {
+func (ws *Worksheet) writeSetup(buffer *bytes.Buffer) {
 	var record uint16 = 0x00A1 // Record identifier
 	var length uint16 = 0x0022 // Number of bytes to follow
 
@@ -349,38 +349,38 @@ func (ws *worksheet) writeSetup(buffer *bytes.Buffer) {
 	grbit |= fNoOrient << 6
 	grbit |= fUsePage << 7
 
-	putVar(buffer, record, length)
-	putVar(buffer, iPaperSize, iScale, iPageStart, iFitWidth, iFitHeight, grbit, iRes, iVRes)
-	putVar(buffer, numHdr, numFtr)
-	putVar(buffer, iCopies)
+	PutVar(buffer, record, length)
+	PutVar(buffer, iPaperSize, iScale, iPageStart, iFitWidth, iFitHeight, grbit, iRes, iVRes)
+	PutVar(buffer, numHdr, numFtr)
+	PutVar(buffer, iCopies)
 }
 
-func (ws *worksheet) writeProtect(buffer *bytes.Buffer) {
+func (ws *Worksheet) writeProtect(buffer *bytes.Buffer) {
 	// empty
 }
 
-func (ws *worksheet) writeScenProtect(buffer *bytes.Buffer) {
+func (ws *Worksheet) writeScenProtect(buffer *bytes.Buffer) {
 	// empty
 }
 
-func (ws *worksheet) writeObjectProtect(buffer *bytes.Buffer) {
+func (ws *Worksheet) writeObjectProtect(buffer *bytes.Buffer) {
 	// empty
 }
 
-func (ws *worksheet) writePassword(buffer *bytes.Buffer) {
+func (ws *Worksheet) writePassword(buffer *bytes.Buffer) {
 	// empty
 }
 
-func (ws *worksheet) writeDefcol(buffer *bytes.Buffer) {
+func (ws *Worksheet) writeDefcol(buffer *bytes.Buffer) {
 	var defaultColWidth uint16 = 8
 
 	var record uint16 = 0x0055 // Record identifier
 	var length uint16 = 0x0002 // Number of bytes to follow
 
-	putVar(buffer, record, length, defaultColWidth)
+	PutVar(buffer, record, length, defaultColWidth)
 }
 
-func (ws *worksheet) writeColinfo(buffer *bytes.Buffer, columnInfo []uint16) {
+func (ws *Worksheet) writeColinfo(buffer *bytes.Buffer, columnInfo []uint16) {
 	var colFirst, colLast, grbit, level uint16
 	var coldx uint16 = 10
 	var xfIndex uint16 = 15
@@ -418,45 +418,45 @@ func (ws *worksheet) writeColinfo(buffer *bytes.Buffer, columnInfo []uint16) {
 	level = maxUInt16(0, minUInt16(level, 7))
 	grbit |= level << 8
 
-	putVar(buffer, record, length)
-	putVar(buffer, colFirst, colLast, coldx, ixfe, grbit, reserved)
+	PutVar(buffer, record, length)
+	PutVar(buffer, colFirst, colLast, coldx, ixfe, grbit, reserved)
 }
 
-func (ws *worksheet) writeDimensions(buffer *bytes.Buffer, firstRowIndex uint32, lastRowIndex uint32, firstColumnIndex uint16, lastColumnIndex uint16) {
+func (ws *Worksheet) writeDimensions(buffer *bytes.Buffer, firstRowIndex uint32, lastRowIndex uint32, firstColumnIndex uint16, lastColumnIndex uint16) {
 	var record uint16 = 0x0200 // Record identifier
 	var length uint16 = 0x000E
 
-	putVar(buffer, record, length, firstRowIndex, lastRowIndex+1, firstColumnIndex, lastColumnIndex+1, uint16(0x0000))
+	PutVar(buffer, record, length, firstRowIndex, lastRowIndex+1, firstColumnIndex, lastColumnIndex+1, uint16(0x0000))
 }
 
-func (ws *worksheet) writeBlank(buffer *bytes.Buffer, rowIdx int, columnIdx int, xfIndex int) {
+func (ws *Worksheet) writeBlank(buffer *bytes.Buffer, rowIdx int, columnIdx int, xfIndex int) {
 	var record uint16 = 0x0201 // Record identifier
 	var length uint16 = 0x0006 // Number of bytes to follow
 
-	putVar(buffer, record, length)
-	putVar(buffer, uint16(rowIdx), uint16(columnIdx), uint16(xfIndex))
+	PutVar(buffer, record, length)
+	PutVar(buffer, uint16(rowIdx), uint16(columnIdx), uint16(xfIndex))
 }
 
-func (ws *worksheet) writeString(buffer *bytes.Buffer, rowIdx int, columnIdx int, cValue string, xfIndex int, stringCollection *stringCollection) {
+func (ws *Worksheet) writeString(buffer *bytes.Buffer, rowIdx int, columnIdx int, cValue string, xfIndex int, stringCollection *StringCollection) {
 	var record uint16 = 0x00FD // Record identifier
 	var length uint16 = 0x000A // Bytes to follow
 
-	cValue = utf8toBIFF8UnicodeLong(cValue)
+	cValue = Utf8toBIFF8UnicodeLong(cValue)
 
-	if strTabVal, ok := stringCollection.stringMap[cValue]; ok {
-		putVar(buffer, record, length)
-		putVar(buffer, uint16(rowIdx), uint16(columnIdx), uint16(xfIndex), uint32(strTabVal))
+	if strTabVal, ok := stringCollection.StringMap[cValue]; ok {
+		PutVar(buffer, record, length)
+		PutVar(buffer, uint16(rowIdx), uint16(columnIdx), uint16(xfIndex), uint32(strTabVal))
 		return
 	}
 
 	panic("Something happened wrong")
 }
 
-func (ws *worksheet) writeMsoDrawing(buffer *bytes.Buffer) {
+func (ws *Worksheet) writeMsoDrawing(buffer *bytes.Buffer) {
 	// empty
 }
 
-func (ws *worksheet) writeWindow2(buffer *bytes.Buffer) {
+func (ws *Worksheet) writeWindow2(buffer *bytes.Buffer) {
 	var record uint16 = 0x023E // Record identifier
 	var length uint16 = 0x0012
 
@@ -491,17 +491,17 @@ func (ws *worksheet) writeWindow2(buffer *bytes.Buffer) {
 	grbit |= fPaged << 10
 	grbit |= fPageBreakPreview << 11
 
-	putVar(buffer, record, length)
-	putVar(buffer, grbit, rwTop, colLeft)
+	PutVar(buffer, record, length)
+	PutVar(buffer, grbit, rwTop, colLeft)
 
 	var rgbHdr uint16 = 0x0040 // Row/column heading and gridline color index
 	var zoom_factor_page_break uint16 = 0
 	var zoom_factor_normal uint16 = 100
 
-	putVar(buffer, rgbHdr, uint16(0x0000), zoom_factor_page_break, zoom_factor_normal, uint32(0x00000000))
+	PutVar(buffer, rgbHdr, uint16(0x0000), zoom_factor_page_break, zoom_factor_normal, uint32(0x00000000))
 }
 
-func (ws *worksheet) writePageLayoutView(buffer *bytes.Buffer) {
+func (ws *Worksheet) writePageLayoutView(buffer *bytes.Buffer) {
 	var record uint16 = 0x088B // Record identifier
 	var length uint16 = 0x0010 // Bytes to follow
 
@@ -517,35 +517,35 @@ func (ws *worksheet) writePageLayoutView(buffer *bytes.Buffer) {
 	grbit |= fRulerVisible << 1
 	grbit |= fWhitespaceHidden << 3
 
-	putVar(buffer, record, length)
-	putVar(buffer, rt, grbitFrt, uint32(0x00000000), uint32(0x00000000), wScalvePLV, grbit)
+	PutVar(buffer, record, length)
+	PutVar(buffer, rt, grbitFrt, uint32(0x00000000), uint32(0x00000000), wScalvePLV, grbit)
 }
 
-func (ws *worksheet) writeZoom(buffer *bytes.Buffer) {
+func (ws *Worksheet) writeZoom(buffer *bytes.Buffer) {
 	// empty
 }
 
-func (ws *worksheet) writeSelection(buffer *bytes.Buffer) {
+func (ws *Worksheet) writeSelection(buffer *bytes.Buffer) {
 	var record uint16 = 0x001D // Record identifier
 	var length uint16 = 0x000F // Number of bytes to follow
 
-	putVar(buffer, record, length)
-	putVar(buffer, uint8(3), uint16(0), uint16(0), uint16(0), uint16(1), uint16(0), uint16(0), uint8(0), uint8(0))
+	PutVar(buffer, record, length)
+	PutVar(buffer, uint8(3), uint16(0), uint16(0), uint16(0), uint16(1), uint16(0), uint16(0), uint8(0), uint8(0))
 }
 
-func (ws *worksheet) writeMergedCells(buffer *bytes.Buffer) {
+func (ws *Worksheet) writeMergedCells(buffer *bytes.Buffer) {
 	// empty
 }
 
-func (ws *worksheet) writeDataValidity(buffer *bytes.Buffer) {
+func (ws *Worksheet) writeDataValidity(buffer *bytes.Buffer) {
 	// empty
 }
 
-func (ws *worksheet) writeSheetLayout(buffer *bytes.Buffer) {
+func (ws *Worksheet) writeSheetLayout(buffer *bytes.Buffer) {
 	// empty
 }
 
-func (ws *worksheet) writeSheetProtection(buffer *bytes.Buffer) {
+func (ws *Worksheet) writeSheetProtection(buffer *bytes.Buffer) {
 	// record identifier
 	var record uint16 = 0x0867
 	var length uint16 = 23
@@ -553,17 +553,17 @@ func (ws *worksheet) writeSheetProtection(buffer *bytes.Buffer) {
 	// prepare options
 	var options uint16 = 32767
 
-	putVar(buffer, record, length)
-	putVar(buffer, uint16(0x0867), uint32(0x0000), uint32(0x0000), uint8(0x00), uint32(0x01000200), uint32(0xFFFFFFFF), options, uint16(0x0000))
+	PutVar(buffer, record, length)
+	PutVar(buffer, uint16(0x0867), uint32(0x0000), uint32(0x0000), uint8(0x00), uint32(0x01000200), uint32(0xFFFFFFFF), options, uint16(0x0000))
 }
 
-func (ws *worksheet) writeRangeProtection(buffer *bytes.Buffer) {
+func (ws *Worksheet) writeRangeProtection(buffer *bytes.Buffer) {
 	// empty
 }
 
-func (ws *worksheet) storeEof(buffer *bytes.Buffer) {
+func (ws *Worksheet) storeEof(buffer *bytes.Buffer) {
 	var record uint16 = 0x000A // Record identifier
 	var length uint16 = 0x0000 // Number of bytes to follow
 
-	putVar(buffer, record, length)
+	PutVar(buffer, record, length)
 }
